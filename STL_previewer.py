@@ -1,4 +1,7 @@
-import time, os, numpy as np, math, random, cv2, sys, copy
+from os import environ
+environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+
+import time, os, numpy as np, math, random, cv2, sys, copy, pygame
 from PIL import Image, ImageDraw, ImageFont
 from struct import unpack
 
@@ -6,14 +9,8 @@ from struct import unpack
 
 #* Body class on init loads the STL and calculates some variables, such as center and body size. 
 class Body:
-    def __init__(self):
-        #* Find STL file path
-        if len(sys.argv) > 1:
-            self.path = os.path.join(os.getcwd(), sys.argv[1])
-        else:
-            self.path = os.path.join(os.getcwd(), "Body.stl")  
-        
-        self.body = self.load_body()    #* Loading body from STL file
+    def __init__(self, path=os.path.join(os.getcwd(), "Body.stl")):
+        self.body = self.load_body(path)    #* Loading body from STL file
         self.move_by_offset()
         self.rotated_body = copy.deepcopy(self.body)   #* Creating a copy of the body so that the original body remains unchanged
         
@@ -63,26 +60,28 @@ class Body:
         
     
     #* Loads body from file.
-    def load_body(self):
+    def load_body(self, path):
         body = []
-        with open(self.path, "rb") as f:
+        with open(path, "rb") as f:
             #* Loading body if ascii coded
-            # if f.read(5) == b"solid":             #TODO: Reading normal from ascii STL
-            #     raw_data = f.readlines()
-            #     f.close()
+            if f.read(5) == b"solid":             #TODO: Reading normal from ascii STL
+                print("This version does not support ascii coded STL files. Try using binary coded STL")
+                exit()
+                # raw_data = f.readlines()
+                # f.close()
                 
-            #     c = 0
-            #     for line in raw_data:
-            #         if line[:6] == "      " and c < 3:
-            #             if c == 0:
-            #                 body.append([])
-            #             c = c + 1
-            #             vertex = line[15:].split(" ")
-            #             body[-1].append([float(vertex[0]), float(vertex[1]), float(vertex[2])])
-            #         else:
-            #             c = 0
+                # c = 0
+                # for line in raw_data:
+                #     if line[:6] == "      " and c < 3:
+                #         if c == 0:
+                #             body.append([])
+                #         c = c + 1
+                #         vertex = line[15:].split(" ")
+                #         body[-1].append([float(vertex[0]), float(vertex[1]), float(vertex[2])])
+                #     else:
+                #         c = 0
             
-            # else:
+            else:
                 #* Loading body if binary coded
                 f.seek(80) #* Skipping header
                 facets_count = unpack("<i", f.read(4))[0]
@@ -127,29 +126,29 @@ class Body:
                 rz = rz + self.center[2]
 
                 rotated_body[-1].append([rx, ry, rz])
+        self.rotated_body = rotated_body
         return rotated_body
        
         
 
 #* Camera class.
 class Cam:
-    def __init__(self, body_center):
-        self.y_distance_multiplier = 100     #* Where camera should be in reference to Body (recomended - 10)
-        self.pos = [body_center[0], body_center[1]*self.y_distance_multiplier, body_center[2]]      #* Setting camera position
+    def __init__(self, body_center, y_distance_multiplier):
+        self.pos = [body_center[0], body_center[1]*y_distance_multiplier, body_center[2]]      #* Setting camera position
         
 
 
 #* Screen is an object between the body and the camera onto which body points are projected.
 class Screen:
-    def __init__(self, body_center, body_size):
-        self.resolution = [1600, 900]       #* Rendering resolution
-        self.window_size = [1200, 675]      #* Window size
-        self.screen_to_body_ratio = 0.8     #* Screen-to-body width ratio
-        self.line_size = 1                  #* Linewidth (only in mesh mode)
-        self.background_color = (0, 0, 0)   #* Background color
-        self.color = (255, 255, 0)          #* Body color
-        self.min_brightness = 0.2             #* How dark the darkest elements should be (0 - black, 1 - Body color)
-        self.y_distance_multiplier = 60      #* Where screen should be between Body and camera, it needs to be smaller than camera y_distance_multiplier (the bigger the smaller the rendered object will be)
+    def __init__(self, body_center, body_size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, min_brightness, y_distance_multiplier):
+        self.resolution = resolution        #* Rendering resolution
+        self.window_size = window_size      #* Window size
+        self.screen_to_body_ratio = screen_to_body_ratio     #* Body-to-screen width ratio
+        self.line_size = line_size                  #* Linewidth (only in mesh mode)
+        self.background_color = background_color   #* Background color
+        self.body_color = body_color          #* Body color
+        self.min_brightness = min_brightness             #* How dark the darkest elements should be (0 - black, 1 - Body color)
+        self.y_distance_multiplier = y_distance_multiplier      #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier (the bigger the smaller the rendered object will be)
         
         self.size = [body_size[0]/self.screen_to_body_ratio, body_size[0]/self.screen_to_body_ratio * 9/16]
         self.pos = [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
@@ -167,12 +166,12 @@ class Screen:
     
     #* Generates 2D body image by projecting(referring to "project_point") body surfaces onto the screen.
     def generate_img(self, body, cam, mesh=False):
-        img = Image.new("RGB", tuple(self.resolution), self.background_color)
+        img = Image.new("RGB", self.resolution, self.background_color)
         draw = ImageDraw.Draw(img)
         
-        sorted_body = sorted(body.rotated_body, reverse=True, key=lambda x: abs(x[1][1] + x[2][1] + x[3][1]) / 3)  #* Sorting Body facets by distance from the camera
-        min_y = abs(sorted_body[0][1][1] + sorted_body[0][2][1] + sorted_body[0][3][1]) / 3        #* Calculation of the distance from the camera to the farthest facet
-        max_y = abs(sorted_body[-1][1][1] + sorted_body[-1][2][1] + sorted_body[-1][3][1]) / 3      #* Calculating the distance from the camera to the nearest facet
+        sorted_body = sorted(body.rotated_body, reverse=True, key=lambda x: (x[1][1] + x[2][1] + x[3][1]) / 3)  #* Sorting Body facets by distance from the camera
+        min_y = (sorted_body[0][1][1] + sorted_body[0][2][1] + sorted_body[0][3][1]) / 3        #* Calculation of the distance from the camera to the farthest facet
+        max_y = (sorted_body[-1][1][1] + sorted_body[-1][2][1] + sorted_body[-1][3][1]) / 3      #* Calculating the distance from the camera to the nearest facet
         
         for facet in sorted_body:       #* Iterating through every facet in the body
             corners = []
@@ -184,7 +183,7 @@ class Screen:
             
             avg_y = (facet[1][1] + facet[2][1] + facet[3][1]) / 3       #* Calculating the distance from the camera to the current facet
             brightness = (avg_y - min_y) * (1 - self.min_brightness) / (max_y - min_y) + self.min_brightness        #* Setting the brightness of the current triangle
-            color = (int(self.color[0] * brightness), int(self.color[1] * brightness), int(self.color[2] * brightness))     #* Calculating color of the current triangle
+            color = (int(self.body_color[0] * brightness), int(self.body_color[1] * brightness), int(self.body_color[2] * brightness))     #* Calculating color of the current triangle
             
             #* If mesh mode is enabled, draw mesh
             if mesh:
@@ -206,46 +205,82 @@ class Screen:
         
 
 
+#* Settings
+resolution=(1600, 900)      #* Rendering resolution
+window_size=(1200, 675)     #* Window size
+screen_to_body_ratio=0.8    #* Body-to-screen width ratio
+line_size=1                 #* Linewidth (only in mesh mode)
+background_color=(0,0,0)    #* Window background color
+body_color=(255,255,255)    #* Color of the body
+min_brightness=0.2          #* How dark the darkest elements should be (0 - black, 1 - Body color)
 
+#* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier
+#* (the bigger, the smaller the rendered object will be)
+screen_y_distance_multiplier=70
+
+#* Where the "camera" should be located, must be greater than the screen_y_distance_multiplier
+camera_y_distance_multiplier = 200
+
+
+
+#* Find STL file path
+if len(sys.argv) > 1:
+    path = os.path.join(os.getcwd(), sys.argv[1])
+else:
+    path = os.path.join(os.getcwd(), "Body.stl")
+    
 #* Initializing scene elements
-body = Body()
-cam = Cam(body.center)
-screen = Screen(body.center, body.size)
+body = Body(path)
+cam = Cam(body.center, camera_y_distance_multiplier)
+screen = Screen(body.center, body.size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, min_brightness, screen_y_distance_multiplier)
 
 # print(body.center, body.size, cam.pos)
 
-
-last_frame = time.time()    #* Used for calculating FPS
 mesh=False  #* Render mode
+
+pygame.font.init()
+display = pygame.display.set_mode(window_size)
+clock = pygame.time.Clock()
+myfont = pygame.font.SysFont("Arial", 20)
+
 
 #* Main loop
 while True:
     for a in range(360):
-        body.rotated_body = body.rotate((a, a, a))  #* Rotating body
+        for event in pygame.event.get():
+            
+            #* Terminate program
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+                
+            elif event.type == pygame.KEYDOWN:
+                
+                #* Terminate program
+                if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
+                    pygame.quit()
+                    quit()
+                
+                #* Chane render mode
+                elif event.key == pygame.K_m:
+                    if mesh == True:
+                        mesh = False
+                    else:
+                        mesh = True
+        
+        
+        body.rotate((a, a, a))  #* Rotating body
 
         img = screen.generate_img(body, cam, mesh)  #* Rendering frame
         
-        frame = np.array(img)   #* Converting img from PIL image to np.array
+        frame = pygame.image.fromstring(img.tobytes(), img.size, img.mode)   #* Converting img from PIL image to pygame surface
+        frame_rect = frame.get_rect()
+        frame_rect.center = window_size[0]//2, window_size[1]//2
         
-        fps = 1/(time.time() - last_frame)      #* Calculating FPS
-        last_frame = time.time()
-        if fps < 10:
-            fps = round(fps, 2)
-        else:
-            fps = int(fps)
+        FPS_text = myfont.render(("FPS: " + str(int(clock.get_fps()))), False, (255, 255, 255))     #* Creating FPS text
         
-        cv2.putText(frame, ("FPS: " + str(fps)), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)   #* Add FPS to frame
+        display.blit(frame, frame_rect)     #* Displaying rendered body
+        display.blit(FPS_text, (10,10))     #* Displaying FPS value
         
-        cv2.imshow("ELO", frame)    #* Update frame
-        
-        #* Chane render mode
-        if cv2.waitKey(1) & 0xFF == ord('m'):
-            if mesh == True:
-                mesh = False
-            else:
-                mesh = True
-        
-        #* Terminate program
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            exit()
+        clock.tick()        #* Updating clock (FPS countng)
+        pygame.display.update()     #* Apply changes to the screen
