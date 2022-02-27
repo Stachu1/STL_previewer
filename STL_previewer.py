@@ -14,12 +14,28 @@ class Body:
             self.path = os.path.join(os.getcwd(), "Body.stl")  
         
         self.body = self.load_body()    #* Loading body from STL file
+        self.move_by_offset()
         self.rotated_body = copy.deepcopy(self.body)   #* Creating a copy of the body so that the original body remains unchanged
         
-        self.center = self.find_center()    #* Finding center of the body
         self.size = self.find_size()    #* Finding size of the body
+        self.center = (self.size[0]/2, self.size[1]/2, self.size[2]/2)    #* Finding center of the body
+    
+    
+    #* Move the body so that the body is next to point (0,0,0)
+    def move_by_offset(self):
+        x_offset = min([vertex[0] for facet in self.body for vertex in facet[1:]])
+        y_offset = min([vertex[1] for facet in self.body for vertex in facet[1:]])
+        z_offset = min([vertex[2] for facet in self.body for vertex in facet[1:]])
         
+        for facet in self.body:
+            for vertex in facet[1:]:
+                vertex[0] = vertex[0] - x_offset
+                vertex[1] = vertex[1] - y_offset
+                vertex[2] = vertex[2] - z_offset
+        return self.body
         
+    
+    #! Currently not in use, left for later
     #* Calculates body center.
     def find_center(self):
         max_x = max([vertex[0] for facet in self.body for vertex in facet[1:]])
@@ -132,8 +148,8 @@ class Screen:
         self.line_size = 1                  #* Linewidth (only in mesh mode)
         self.background_color = (0, 0, 0)   #* Background color
         self.color = (255, 255, 0)          #* Body color
-        self.min_brightness = 0             #* How dark the darkest elements should be (0 - black, 1 - Body color)
-        self.y_distance_multiplier = 50      #* Where screen should be between Body and camera, it needs to be smaller than camera y_distance_multiplier (the bigger the smaller the rendered object will be)
+        self.min_brightness = 0.2             #* How dark the darkest elements should be (0 - black, 1 - Body color)
+        self.y_distance_multiplier = 60      #* Where screen should be between Body and camera, it needs to be smaller than camera y_distance_multiplier (the bigger the smaller the rendered object will be)
         
         self.size = [body_size[0]/self.screen_to_body_ratio, body_size[0]/self.screen_to_body_ratio * 9/16]
         self.pos = [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
