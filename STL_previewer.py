@@ -99,7 +99,30 @@ class Body:
         rotated_body = []
         for facet in self.body:     #* Iterating through every facet in the body
             rotated_body.append([])
-            for point in facet:     #* Iterating through every point(facet normal included) of the facet
+            
+            point = facet[0]        #* Rotating facet normal vector
+            #* Some boring math ⬇
+            a = np.deg2rad(angle[2])
+            x = point[0]
+            y = point[1]
+            rx = x * np.cos(a) - y * np.sin(a)
+            ry = x * np.sin(a) + y * np.cos(a)
+
+            a = np.deg2rad(angle[1])
+            x = rx
+            z = point[2]
+            rx = x * np.cos(a) - z * np.sin(a)
+            rz = x * np.sin(a) + z * np.cos(a)
+            
+            a = np.deg2rad(angle[0])
+            y = ry
+            z = rz
+            ry = y * np.cos(a) - z * np.sin(a)
+            rz = y * np.sin(a) + z * np.cos(a)
+            
+            rotated_body[-1].append([rx, ry, rz])
+            
+            for point in facet[1:]:     #* Iterating through every point of the facet
                 #* Some boring math ⬇
                 a = np.deg2rad(angle[2])
                 x = point[0] - self.center[0]
@@ -126,6 +149,7 @@ class Body:
                 rz = rz + self.center[2]
 
                 rotated_body[-1].append([rx, ry, rz])
+            
         self.rotated_body = rotated_body
         return rotated_body
        
@@ -140,14 +164,14 @@ class Cam:
 
 #* Screen is an object between the body and the camera onto which body points are projected.
 class Screen:
-    def __init__(self, body_center, body_size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, min_brightness, y_distance_multiplier):
+    def __init__(self, body_center, body_size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, brightness, y_distance_multiplier):
         self.resolution = resolution        #* Rendering resolution
         self.window_size = window_size      #* Window size
         self.screen_to_body_ratio = screen_to_body_ratio     #* Body-to-screen width ratio
         self.line_size = line_size                  #* Linewidth (only in mesh mode)
         self.background_color = background_color   #* Background color
         self.body_color = body_color          #* Body color
-        self.min_brightness = min_brightness             #* How dark the darkest elements should be (0 - black, 1 - Body color)
+        self.brightness = brightness             #* How dark the darkest elements should be (0 - black, 1 - Body color)
         self.y_distance_multiplier = y_distance_multiplier      #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier (the bigger the smaller the rendered object will be)
         
         self.size = [body_size[0]/self.screen_to_body_ratio, body_size[0]/self.screen_to_body_ratio * 9/16]
@@ -170,8 +194,6 @@ class Screen:
         draw = ImageDraw.Draw(img)
         
         sorted_body = sorted(body.rotated_body, reverse=True, key=lambda x: (x[1][1] + x[2][1] + x[3][1]) / 3)  #* Sorting Body facets by distance from the camera
-        min_y = (sorted_body[0][1][1] + sorted_body[0][2][1] + sorted_body[0][3][1]) / 3        #* Calculation of the distance from the camera to the farthest facet
-        max_y = (sorted_body[-1][1][1] + sorted_body[-1][2][1] + sorted_body[-1][3][1]) / 3      #* Calculating the distance from the camera to the nearest facet
         
         for facet in sorted_body:       #* Iterating through every facet in the body
             corners = []
@@ -181,9 +203,20 @@ class Screen:
                     corners.append(pixel)
             
             
-            avg_y = (facet[1][1] + facet[2][1] + facet[3][1]) / 3       #* Calculating the distance from the camera to the current facet
-            brightness = (avg_y - min_y) * (1 - self.min_brightness) / (max_y - min_y) + self.min_brightness        #* Setting the brightness of the current triangle
-            color = (int(self.body_color[0] * brightness), int(self.body_color[1] * brightness), int(self.body_color[2] * brightness))     #* Calculating color of the current triangle
+            if not mesh:
+                #* Some boring math ⬇
+                normal_to_camera_angle = np.arccos((1 * -facet[0][1]) / ((1)**0.5 * (facet[0][0]**2 + facet[0][1]**2 + facet[0][2]**2)**0.5))       #* Calculating angle of the current triangle to the camera
+                
+                if normal_to_camera_angle > np.pi / 2:      #* Saving computing power 
+                    continue
+                
+                brightness = (1 - normal_to_camera_angle / np.pi) * self.brightness     #* Setting the brightness of the current triangle
+                
+                color = (int(self.body_color[0] * brightness), int(self.body_color[1] * brightness), int(self.body_color[2] * brightness))     #* Calculating color of the current triangle
+
+            else:
+                color = (self.body_color[0], self.body_color[1], self.body_color[2])
+            
             
             #* If mesh mode is enabled, draw mesh
             if mesh:
@@ -211,12 +244,12 @@ window_size=(1200, 675)     #* Window size
 screen_to_body_ratio=0.8    #* Body-to-screen width ratio
 line_size=1                 #* Linewidth (only in mesh mode)
 background_color=(0,0,0)    #* Window background color
-body_color=(255,255,255)    #* Color of the body
-min_brightness=0.2          #* How dark the darkest elements should be (0 - black, 1 - Body color)
+body_color=(0,255,255)    #* Color of the body
+brightness=0.9              #* Brightness multiplier
 
 #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier
 #* (the bigger, the smaller the rendered object will be)
-screen_y_distance_multiplier=70
+screen_y_distance_multiplier=100
 
 #* Where the "camera" should be located, must be greater than the screen_y_distance_multiplier
 camera_y_distance_multiplier = 200
@@ -232,7 +265,7 @@ else:
 #* Initializing scene elements
 body = Body(path)
 cam = Cam(body.center, camera_y_distance_multiplier)
-screen = Screen(body.center, body.size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, min_brightness, screen_y_distance_multiplier)
+screen = Screen(body.center, body.size, resolution, window_size, screen_to_body_ratio, line_size, background_color, body_color, brightness, screen_y_distance_multiplier)
 
 # print(body.center, body.size, cam.pos)
 
@@ -282,5 +315,5 @@ while True:
         display.blit(frame, frame_rect)     #* Displaying rendered body
         display.blit(FPS_text, (10,10))     #* Displaying FPS value
         
-        clock.tick()        #* Updating clock (FPS countng)
+        clock.tick(1000)        #* Updating clock (FPS countng)
         pygame.display.update()     #* Apply changes to the screen
