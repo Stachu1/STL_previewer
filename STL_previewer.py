@@ -174,8 +174,10 @@ class Screen:
         self.y_distance_multiplier = y_distance_multiplier      #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier (the bigger the smaller the rendered object will be)
         
         self.size = [body_size[0]/self.screen_to_body_ratio, body_size[0]/self.screen_to_body_ratio * 9/16]
-        self.pos = [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
-        
+        self.pos = self.calculate_pos(body_center)
+    
+    def calculate_pos(self, body_center):
+        return [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
     
     #* Calculates where body point should be displayed.
     def project_point(self, point, cam):
@@ -300,6 +302,21 @@ while True:
                     else:
                         mesh = True
         
+        
+        keys = pygame.key.get_pressed()
+        
+        #* Zoom in
+        if keys[pygame.K_UP]:
+            if screen.y_distance_multiplier > 0:
+                screen.y_distance_multiplier = screen.y_distance_multiplier - 1
+            screen.pos = screen.calculate_pos(body.center)
+            
+        #* Zoom out
+        if keys[pygame.K_DOWN]:
+            if screen.y_distance_multiplier < camera_y_distance_multiplier:
+                screen.y_distance_multiplier = screen.y_distance_multiplier + 1
+            screen.pos = screen.calculate_pos(body.center)
+                        
         
         body.rotate((a, a, a))  #* Rotating body
 
