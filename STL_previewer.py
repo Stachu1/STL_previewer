@@ -1,9 +1,10 @@
 from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
-import time, os, numpy as np, math, random, cv2, sys, copy, pygame
-from PIL import Image, ImageDraw, ImageFont
+import time, os, numpy as np, random, sys, copy, pygame, pickle
+from PIL import Image, ImageDraw
 from struct import unpack
+from colorama import Fore
 
 
 
@@ -238,6 +239,14 @@ class Screen:
         return img
         
 
+def generate_icon():
+    icon = Image.new("RGBA", (1,1), (0,0,0,0))
+    icon.save('icon.temp', "PNG")
+    icon = pygame.image.load("icon.temp")
+    os.remove("icon.temp")
+    return icon
+
+
 
 #* Settings
 resolution=(1600, 900)      #* Rendering resolution
@@ -259,9 +268,17 @@ camera_y_distance_multiplier = 200
 
 #* Find STL file path
 if len(sys.argv) > 1:
-    path = os.path.join(os.getcwd(), sys.argv[1])
+    if sys.argv[1][1] == ":" or sys.argv[1][0] == "/" or sys.argv[1][0] == "~":
+        path = sys.argv[1]
+    else:
+        path = os.path.join(os.getcwd(), sys.argv[1])
 else:
-    path = os.path.join(os.getcwd(), "Body.stl")
+    path = input(f"{Fore.CYAN}Please specify path or file name: {Fore.RESET}")
+    if path == "":
+        path = "Body.stl"
+    elif not (path[1] == ":" or path[0] == "/" or path[0] == "~"):
+        path = os.path.join(os.getcwd(), path)
+        
     
 #* Initializing scene elements
 body = Body(path)
@@ -273,6 +290,8 @@ screen = Screen(body.center, body.size, resolution, window_size, screen_to_body_
 mesh=False  #* Render mode
 
 pygame.font.init()
+pygame.display.set_caption("STL previewer")
+pygame.display.set_icon(generate_icon())
 display = pygame.display.set_mode(window_size)
 clock = pygame.time.Clock()
 myfont = pygame.font.SysFont("Arial", 20)
