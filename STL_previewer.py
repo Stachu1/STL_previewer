@@ -1,9 +1,10 @@
 from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
-import time, os, numpy as np, math, random, cv2, sys, copy, pygame
-from PIL import Image, ImageDraw, ImageFont
+import time, os, numpy as np, random, sys, copy, pygame, pickle
+from PIL import Image, ImageDraw
 from struct import unpack
+from colorama import Fore
 
 
 
@@ -64,22 +65,21 @@ class Body:
         body = []
         with open(path, "rb") as f:
             #* Loading body if ascii coded
-            if f.read(5) == b"solid":             #TODO: Reading normal from ascii STL
-                print("This version does not support ascii coded STL files. Try using binary coded STL")
-                exit()
-                # raw_data = f.readlines()
-                # f.close()
+            if f.read(5) == b"solid":
+                raw_data = f.readlines()
+                f.close()
                 
-                # c = 0
-                # for line in raw_data:
-                #     if line[:6] == "      " and c < 3:
-                #         if c == 0:
-                #             body.append([])
-                #         c = c + 1
-                #         vertex = line[15:].split(" ")
-                #         body[-1].append([float(vertex[0]), float(vertex[1]), float(vertex[2])])
-                #     else:
-                #         c = 0
+                for line in raw_data:
+                    if line[:15] == b"  facet normal ":
+                        body.append([])
+                        normal = line[15:].split(b" ")
+                        normal[2] = normal[2][:-1]
+                        body[-1].append([float(normal[0]), float(normal[1]), float(normal[2])])
+                    if line[:6] == b"      ":
+                        vertex = line[13:].split(b" ")
+                        vertex[2] = vertex[2][:-1]
+                        body[-1].append([float(vertex[0]), float(vertex[1]), float(vertex[2])])
+
             
             else:
                 #* Loading body if binary coded
@@ -175,8 +175,10 @@ class Screen:
         self.y_distance_multiplier = y_distance_multiplier      #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier (the bigger the smaller the rendered object will be)
         
         self.size = [body_size[0]/self.screen_to_body_ratio, body_size[0]/self.screen_to_body_ratio * 9/16]
-        self.pos = [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
-        
+        self.pos = self.calculate_pos(body_center)
+    
+    def calculate_pos(self, body_center):
+        return [body_center[0] - self.size[0]/2, body_center[1]*self.y_distance_multiplier, body_center[2] - self.size[1]/2]
     
     #* Calculates where body point should be displayed.
     def project_point(self, point, cam):
@@ -237,6 +239,14 @@ class Screen:
         return img
         
 
+def generate_icon():
+    icon = Image.new("RGBA", (1,1), (0,0,0,0))
+    icon.save('icon.temp', "PNG")
+    icon = pygame.image.load("icon.temp")
+    os.remove("icon.temp")
+    return icon
+
+
 
 #* Settings
 resolution=(1600, 900)      #* Rendering resolution
@@ -244,8 +254,8 @@ window_size=(1200, 675)     #* Window size
 screen_to_body_ratio=0.8    #* Body-to-screen width ratio
 line_size=1                 #* Linewidth (only in mesh mode)
 background_color=(0,0,0)    #* Window background color
-body_color=(0,255,255)    #* Color of the body
-brightness=0.9              #* Brightness multiplier
+body_color=(255,255,255)    #* Color of the body
+brightness=1                #* Brightness multiplier
 
 #* Where the "screen" should be between the body and the camera, it must be smaller than camera_y_distance_multiplier
 #* (the bigger, the smaller the rendered object will be)
@@ -258,9 +268,17 @@ camera_y_distance_multiplier = 200
 
 #* Find STL file path
 if len(sys.argv) > 1:
-    path = os.path.join(os.getcwd(), sys.argv[1])
+    if sys.argv[1][1] == ":" or sys.argv[1][0] == "/" or sys.argv[1][0] == "~":
+        path = sys.argv[1]
+    else:
+        path = os.path.join(os.getcwd(), sys.argv[1])
 else:
-    path = os.path.join(os.getcwd(), "Body.stl")
+    path = input(f"{Fore.CYAN}Please specify path or file name: {Fore.RESET}")
+    if path == "":
+        path = "Body.stl"
+    elif not (path[1] == ":" or path[0] == "/" or path[0] == "~"):
+        path = os.path.join(os.getcwd(), path)
+        
     
 #* Initializing scene elements
 body = Body(path)
@@ -272,6 +290,8 @@ screen = Screen(body.center, body.size, resolution, window_size, screen_to_body_
 mesh=False  #* Render mode
 
 pygame.font.init()
+pygame.display.set_caption("STL previewer")
+pygame.display.set_icon(generate_icon())
 display = pygame.display.set_mode(window_size)
 clock = pygame.time.Clock()
 myfont = pygame.font.SysFont("Arial", 20)
@@ -302,6 +322,21 @@ while True:
                         mesh = True
         
         
+        keys = pygame.key.get_pressed()
+        
+        #* Zoom in
+        if keys[pygame.K_UP]:
+            if screen.y_distance_multiplier > 0:
+                screen.y_distance_multiplier = screen.y_distance_multiplier - 1
+            screen.pos = screen.calculate_pos(body.center)
+            
+        #* Zoom out
+        if keys[pygame.K_DOWN]:
+            if screen.y_distance_multiplier < camera_y_distance_multiplier:
+                screen.y_distance_multiplier = screen.y_distance_multiplier + 1
+            screen.pos = screen.calculate_pos(body.center)
+                        
+        
         body.rotate((a, a, a))  #* Rotating body
 
         img = screen.generate_img(body, cam, mesh)  #* Rendering frame
@@ -310,7 +345,7 @@ while True:
         frame_rect = frame.get_rect()
         frame_rect.center = window_size[0]//2, window_size[1]//2
         
-        FPS_text = myfont.render(("FPS: " + str(int(clock.get_fps()))), False, (255, 255, 255))     #* Creating FPS text
+        FPS_text = myfont.render(("FPS: " + str(round((clock.get_fps()), 2))), False, (255, 255, 255))     #* Creating FPS text
         
         display.blit(frame, frame_rect)     #* Displaying rendered body
         display.blit(FPS_text, (10,10))     #* Displaying FPS value
